@@ -6,12 +6,25 @@ DOMAIN-SUFFIX,time.windows.com
 DOMAIN-SUFFIX,lanzov.com
 DOMAIN-SUFFIX,hao123.com
 DOMAIN-SUFFIX,yiketu.com
-DOMAIN-SUFFIX,aidc-ai.com
+DOMAIN-SUFFIX,cn-api.aidc-ai.com
+DOMAIN-SUFFIX,plw.szchengji-inc.com
+DOMAIN-SUFFIX,erp.91miaoshou.com
+DOMAIN-SUFFIX,client.wns.windows.com
+DOMAIN-SUFFIX,cn.aidc-ai.com
+DOMAIN-SUFFIX,bixi.alicdn.com
 
 # 域名关键字匹配
 DOMAIN-KEYWORD,baidu
 DOMAIN-KEYWORD,yiketu
 DOMAIN-KEYWORD,aidc-ai
+DOMAIN-KEYWORD,yiketu
+DOMAIN-KEYWORD,cn-api.aidc-ai
+DOMAIN-KEYWORD,szchengji
+DOMAIN-KEYWORD,91miaoshou
+DOMAIN-KEYWORD,outlook.office
+DOMAIN-KEYWORD,cn.aidc-ai
+DOMAIN-KEYWORD,bixi.alicdn
+DOMAIN-KEYWORD,alicdn
 
 # IP段匹配
 IP-CIDR,219.146.1.66/32,no-resolve
