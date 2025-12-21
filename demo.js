@@ -1,362 +1,304 @@
-function operator(proxies = [], targetPlatform, context) {
-  // 支持快捷操作 不一定要写一个 function
-  // 可参考 https://t.me/zhetengsha/970
-  // https://t.me/zhetengsha/1009
+/**
+ * 更新日期：2024-04-05 15:30:15
+ * 用法：Sub-Store 脚本操作添加
+ * rename.js 以下是此脚本支持的参数，必须以 # 为开头多个参数使用"&"连接，参考上述地址为例使用参数。 禁用缓存url#noCache
+ *
+ *** 主要参数
+ * [in=] 自动判断机场节点名类型 优先级 zh(中文) -> flag(国旗) -> quan(英文全称) -> en(英文简写)
+ * 如果不准的情况, 可以加参数指定:
+ *
+ * [nm]    保留没有匹配到的节点
+ * [in=zh] 或in=cn识别中文
+ * [in=en] 或in=us 识别英文缩写
+ * [in=flag] 或in=gq 识别国旗 如果加参数 in=flag 则识别国旗 脚本操作前面不要添加国旗操作 否则移除国旗后面脚本识别不到
+ * [in=quan] 识别英文全称
 
-  // proxies 为传入的内部节点数组
-  // 可在预览界面点击节点查看 JSON 结构 或查看 `target=JSON` 的通用订阅
-  // 0. 结构大致参考了 Clash.Meta(mihomo), 可参考 mihomo 的文档, 例如 `xudp`, `smux` 都可以自己设置. 但是有私货, 下面是我能想起来的一些私货. 顺便说一下, 关于 mihomo 不支持的协议, 其实也可以用 JSON/JSON5/YAML 格式来输入, 写法可参考使用 includeUnsupportedProxy 参数或开启 包含官方/商店版不支持的协议 开关时的 mihomo 输出内容, 例如 NaiveProxy 输入写法 (https://t.me/zhetengsha/4308)
-  // 1. `_no-resolve` 为不解析域名
-  // 2. 域名解析后 会多一个 `_resolved` 字段, 表示是否解析成功
-  // 3. 域名解析后会有`_IPv4`, `_IPv6`, `_IP`(若有多个步骤, 只取第一次成功的 v4 或 v6 数据), `_IP4P`(若解析类型为 IPv6 且符合 IP4P 类型, 将自动转换), `_domain` 字段, `_resolved_ips` 为解析出的所有 IP
-  // 4. 节点字段 _exec 为 mihomo 路径, 默认 /usr/local/bin/mihomo; 节点字段 _localPort 端口为初始端口号, 逐个递减, 默认为 65535. _defaultNameserver(默认为 [ '180.76.76.76', '52.80.52.52', '119.28.28.28', '223.6.6.6' ]) 和 _nameserver (默认为 [ 'https://doh.pub/dns-query', 'https://dns.alidns.com/dns-query', 'https://doh-pure.onedns.net/dns-query' ]) 为数组 用于自定义mihomo 的 default-nameserver 和 nameserver, 这个是配置 Surge for macOS 必须手动指定链接参数 target=SurgeMac 或在 同步配置 中指定 SurgeMac 来启用 mihomo 支援 Surge 本身不支持的协议. 详见 https://t.me/zhetengsha/1735
-  // 5. `_subName` 为单条订阅名, `_subDisplayName` 为单条订阅显示名
-  // 6. `_collectionName` 为组合订阅名, `_collectionDisplayName` 为组合订阅显示名
-  // 7. `tls-fingerprint` 为 tls 指纹
-  // 8. `underlying-proxy` 为前置代理, 不同平台会自动转换
-  //    例如 $server['underlying-proxy'] = '名称'
-  //    只给 mihomo 输出的话, `dialer-proxy` 也行
-  //    只给 sing-box 输出的话, `detour` 也行
-  //    只给 Egern 输出的话, `prev_hop` 也行
-  //    只给 Shadowrocket 输出的话, `chain` 也行
-  //    输出到 Clash/Stash 时, 会过滤掉配置了前置代理的节点, 并提示使用对应的功能.
-  // 9. `trojan`, `tuic`, `hysteria`, `hysteria2`, `juicity` 会在解析时设置 `tls`: true (会使用 tls 类协议的通用逻辑),  输出时删除
-  // 10. `sni` 在某些协议里会自动与 `servername` 转换
-  // 11. 读取节点的 ca-str 和 _ca (后端文件路径) 字段, 自动计算 fingerprint (参考 https://t.me/zhetengsha/1512)
-  // 12. 以 Surge 为例, 最新的参数一般我都会跟进, 以 Surge 文档为例, 一些常用的: TUIC/Hysteria 2 的 `ecn`, Snell 的 `reuse` 连接复用, QUIC 策略 block-quic`, Hysteria 2 下载带宽 `down`
-  // 13. `test-url` 为测延迟链接, `test-timeout` 为测延迟超时
-  // 14. `ports` 为端口跳跃, `hop-interval` 变换端口号的时间间隔
-  // 15. `ip-version` 设置节点使用 IP 版本，兼容各家的值. 会进行内部转换. sing-box 以外: 若无法匹配则使用原始值. sing-box: 需有匹配且节点上设置 `_dns_server` 字段, 将自动设置 `domain_resolver.server`
-  // 16. `sing-box` 支持使用 `_network` 来设置 `network`, 例如 `tcp`, `udp`
-  // 17. `block-quic` 支持 `auto`, `on`, `off`. 不同的平台不一定都支持, 会自动转换
-  // 18. `sing-box` 支持 `_fragment`, `_fragment_fallback_delay`, `_record_fragment` 设置 `tls` 的 `fragment`, `fragment_fallback_delay`, `record_fragment`
-  // 19. `sing-box` 支持 `_certificate`, `_certificate_path`, `_certificate_public_key_sha256`, `_client_certificate`, `_client_certificate_path`, `_client_key`, `_client_key_path` 设置 `tls` 的 `certificate`, `certificate_path`, `certificate_public_key_sha256`, `client_certificate`, `client_certificate_path`, `client_key`, `client_key_path`
+ *
+ * [out=]   输出节点名可选参数: (cn或zh ，us或en ，gq或flag ，quan) 对应：(中文，英文缩写 ，国旗 ，英文全称) 默认中文 例如 [out=en] 或 out=us 输出英文缩写
+ *** 分隔符参数
+ *
+ * [fgf=]   节点名前缀或国旗分隔符，默认为空格；
+ * [sn=]    设置国家与序号之间的分隔符，默认为空格；
+ * 序号参数
+ * [one]    清理只有一个节点的地区的01
+ * [flag]   给节点前面加国旗
+ *
+ *** 前缀参数
+ * [name=]  节点添加机场名称前缀；
+ * [nf]     把 name= 的前缀值放在最前面
+ *** 保留参数
+ * [blkey=iplc+gpt+NF+IPLC] 用+号添加多个关键词 保留节点名的自定义字段 需要区分大小写!
+ * 如果需要修改 保留的关键词 替换成别的 可以用 > 分割 例如 [#blkey=GPT>新名字+其他关键词] 这将把【GPT】替换成【新名字】
+ * 例如      https://raw.githubusercontent.com/Keywos/rule/main/rename.js#flag&blkey=GPT>新名字+NF
+ * [blgd]   保留: 家宽 IPLC ˣ² 等
+ * [bl]     正则匹配保留 [0.1x, x0.2, 6x ,3倍]等标识
+ * [nx]     保留1倍率与不显示倍率的
+ * [blnx]   只保留高倍率
+ * [clear]  清理乱名
+ * [blpx]   如果用了上面的bl参数,对保留标识后的名称分组排序,如果没用上面的bl参数单独使用blpx则不起任何作用
+ * [blockquic] blockquic=on 阻止; blockquic=off 不阻止
+ */
 
-  // require 为 Node.js 的 require, 在 Node.js 运行环境下 可以用来引入模块
-  // 例如在 Node.js 环境下, 将文件内容写入 /tmp/1.txt 文件
-  // const fs = eval(`require("fs")`)
-  // // const path = eval(`require("path")`)
-  // fs.writeFileSync('/tmp/1.txt', $content, "utf8");
+// const inArg = {'blkey':'iplc+GPT>GPTnewName+NF+IPLC', 'flag':true };
+const inArg = $arguments; // console.log(inArg)
+const nx = inArg.nx || false,
+  bl = inArg.bl || false,
+  nf = inArg.nf || false,
+  key = inArg.key || false,
+  blgd = inArg.blgd || false,
+  blpx = inArg.blpx || false,
+  blnx = inArg.blnx || false,
+  numone = inArg.one || false,
+  debug = inArg.debug || false,
+  clear = inArg.clear || false,
+  addflag = inArg.flag || false,
+  nm = inArg.nm || false;
 
-  // $arguments 为传入的脚本参数
+const FGF = inArg.fgf == undefined ? " " : decodeURI(inArg.fgf),
+  XHFGF = inArg.sn == undefined ? " " : decodeURI(inArg.sn),
+  FNAME = inArg.name == undefined ? "" : decodeURI(inArg.name),
+  BLKEY = inArg.blkey == undefined ? "" : decodeURI(inArg.blkey),
+  blockquic = inArg.blockquic == undefined ? "" : decodeURI(inArg.blockquic),
+  nameMap = {
+    cn: "cn",
+    zh: "cn",
+    us: "us",
+    en: "us",
+    quan: "quan",
+    gq: "gq",
+    flag: "gq",
+  },
+  inname = nameMap[inArg.in] || "",
+  outputName = nameMap[inArg.out] || "";
+// prettier-ignore
+const FG = ['🇭🇰','🇲🇴','🇹🇼','🇯🇵','🇰🇷','🇸🇬','🇺🇸','🇬🇧','🇫🇷','🇩🇪','🇦🇺','🇦🇪','🇦🇫','🇦🇱','🇩🇿','🇦🇴','🇦🇷','🇦🇲','🇦🇹','🇦🇿','🇧🇭','🇧🇩','🇧🇾','🇧🇪','🇧🇿','🇧🇯','🇧🇹','🇧🇴','🇧🇦','🇧🇼','🇧🇷','🇻🇬','🇧🇳','🇧🇬','🇧🇫','🇧🇮','🇰🇭','🇨🇲','🇨🇦','🇨🇻','🇰🇾','🇨🇫','🇹🇩','🇨🇱','🇨🇴','🇰🇲','🇨🇬','🇨🇩','🇨🇷','🇭🇷','🇨🇾','🇨🇿','🇩🇰','🇩🇯','🇩🇴','🇪🇨','🇪🇬','🇸🇻','🇬🇶','🇪🇷','🇪🇪','🇪🇹','🇫🇯','🇫🇮','🇬🇦','🇬🇲','🇬🇪','🇬🇭','🇬🇷','🇬🇱','🇬🇹','🇬🇳','🇬🇾','🇭🇹','🇭🇳','🇭🇺','🇮🇸','🇮🇳','🇮🇩','🇮🇷','🇮🇶','🇮🇪','🇮🇲','🇮🇱','🇮🇹','🇨🇮','🇯🇲','🇯🇴','🇰🇿','🇰🇪','🇰🇼','🇰🇬','🇱🇦','🇱🇻','🇱🇧','🇱🇸','🇱🇷','🇱🇾','🇱🇹','🇱🇺','🇲🇰','🇲🇬','🇲🇼','🇲🇾','🇲🇻','🇲🇱','🇲🇹','🇲🇷','🇲🇺','🇲🇽','🇲🇩','🇲🇨','🇲🇳','🇲🇪','🇲🇦','🇲🇿','🇲🇲','🇳🇦','🇳🇵','🇳🇱','🇳🇿','🇳🇮','🇳🇪','🇳🇬','🇰🇵','🇳🇴','🇴🇲','🇵🇰','🇵🇦','🇵🇾','🇵🇪','🇵🇭','🇵🇹','🇵🇷','🇶🇦','🇷🇴','🇷🇺','🇷🇼','🇸🇲','🇸🇦','🇸🇳','🇷🇸','🇸🇱','🇸🇰','🇸🇮','🇸🇴','🇿🇦','🇪🇸','🇱🇰','🇸🇩','🇸🇷','🇸🇿','🇸🇪','🇨🇭','🇸🇾','🇹🇯','🇹🇿','🇹🇭','🇹🇬','🇹🇴','🇹🇹','🇹🇳','🇹🇷','🇹🇲','🇻🇮','🇺🇬','🇺🇦','🇺🇾','🇺🇿','🇻🇪','🇻🇳','🇾🇪','🇿🇲','🇿🇼','🇦🇩','🇷🇪','🇵🇱','🇬🇺','🇻🇦','🇱🇮','🇨🇼','🇸🇨','🇦🇶','🇬🇮','🇨🇺','🇫🇴','🇦🇽','🇧🇲','🇹🇱']
+// prettier-ignore
+const EN = ['HK','MO','TW','JP','KR','SG','US','GB','FR','DE','AU','AE','AF','AL','DZ','AO','AR','AM','AT','AZ','BH','BD','BY','BE','BZ','BJ','BT','BO','BA','BW','BR','VG','BN','BG','BF','BI','KH','CM','CA','CV','KY','CF','TD','CL','CO','KM','CG','CD','CR','HR','CY','CZ','DK','DJ','DO','EC','EG','SV','GQ','ER','EE','ET','FJ','FI','GA','GM','GE','GH','GR','GL','GT','GN','GY','HT','HN','HU','IS','IN','ID','IR','IQ','IE','IM','IL','IT','CI','JM','JO','KZ','KE','KW','KG','LA','LV','LB','LS','LR','LY','LT','LU','MK','MG','MW','MY','MV','ML','MT','MR','MU','MX','MD','MC','MN','ME','MA','MZ','MM','NA','NP','NL','NZ','NI','NE','NG','KP','NO','OM','PK','PA','PY','PE','PH','PT','PR','QA','RO','RU','RW','SM','SA','SN','RS','SL','SK','SI','SO','ZA','ES','LK','SD','SR','SZ','SE','CH','SY','TJ','TZ','TH','TG','TO','TT','TN','TR','TM','VI','UG','UA','UY','UZ','VE','VN','YE','ZM','ZW','AD','RE','PL','GU','VA','LI','CW','SC','AQ','GI','CU','FO','AX','BM','TL'];
+// prettier-ignore
+const ZH = ['香港','澳门','台湾','日本','韩国','新加坡','美国','英国','法国','德国','澳大利亚','阿联酋','阿富汗','阿尔巴尼亚','阿尔及利亚','安哥拉','阿根廷','亚美尼亚','奥地利','阿塞拜疆','巴林','孟加拉国','白俄罗斯','比利时','伯利兹','贝宁','不丹','玻利维亚','波斯尼亚和黑塞哥维那','博茨瓦纳','巴西','英属维京群岛','文莱','保加利亚','布基纳法索','布隆迪','柬埔寨','喀麦隆','加拿大','佛得角','开曼群岛','中非共和国','乍得','智利','哥伦比亚','科摩罗','刚果(布)','刚果(金)','哥斯达黎加','克罗地亚','塞浦路斯','捷克','丹麦','吉布提','多米尼加共和国','厄瓜多尔','埃及','萨尔瓦多','赤道几内亚','厄立特里亚','爱沙尼亚','埃塞俄比亚','斐济','芬兰','加蓬','冈比亚','格鲁吉亚','加纳','希腊','格陵兰','危地马拉','几内亚','圭亚那','海地','洪都拉斯','匈牙利','冰岛','印度','印尼','伊朗','伊拉克','爱尔兰','马恩岛','以色列','意大利','科特迪瓦','牙买加','约旦','哈萨克斯坦','肯尼亚','科威特','吉尔吉斯斯坦','老挝','拉脱维亚','黎巴嫩','莱索托','利比里亚','利比亚','立陶宛','卢森堡','马其顿','马达加斯加','马拉维','马来','马尔代夫','马里','马耳他','毛利塔尼亚','毛里求斯','墨西哥','摩尔多瓦','摩纳哥','蒙古','黑山共和国','摩洛哥','莫桑比克','缅甸','纳米比亚','尼泊尔','荷兰','新西兰','尼加拉瓜','尼日尔','尼日利亚','朝鲜','挪威','阿曼','巴基斯坦','巴拿马','巴拉圭','秘鲁','菲律宾','葡萄牙','波多黎各','卡塔尔','罗马尼亚','俄罗斯','卢旺达','圣马力诺','沙特阿拉伯','塞内加尔','塞尔维亚','塞拉利昂','斯洛伐克','斯洛文尼亚','索马里','南非','西班牙','斯里兰卡','苏丹','苏里南','斯威士兰','瑞典','瑞士','叙利亚','塔吉克斯坦','坦桑尼亚','泰国','多哥','汤加','特立尼达和多巴哥','突尼斯','土耳其','土库曼斯坦','美属维尔京群岛','乌干达','乌克兰','乌拉圭','乌兹别克斯坦','委内瑞拉','越南','也门','赞比亚','津巴布韦','安道尔','留尼汪','波兰','关岛','梵蒂冈','列支敦士登','库拉索','塞舌尔','南极','直布罗陀','古巴','法罗群岛','奥兰群岛','百慕达','东帝汶'];
+// prettier-ignore
+const QC = ['Hong Kong','Macao','Taiwan','Japan','Korea','Singapore','United States','United Kingdom','France','Germany','Australia','Dubai','Afghanistan','Albania','Algeria','Angola','Argentina','Armenia','Austria','Azerbaijan','Bahrain','Bangladesh','Belarus','Belgium','Belize','Benin','Bhutan','Bolivia','Bosnia and Herzegovina','Botswana','Brazil','British Virgin Islands','Brunei','Bulgaria','Burkina-faso','Burundi','Cambodia','Cameroon','Canada','CapeVerde','CaymanIslands','Central African Republic','Chad','Chile','Colombia','Comoros','Congo-Brazzaville','Congo-Kinshasa','CostaRica','Croatia','Cyprus','Czech Republic','Denmark','Djibouti','Dominican Republic','Ecuador','Egypt','EISalvador','Equatorial Guinea','Eritrea','Estonia','Ethiopia','Fiji','Finland','Gabon','Gambia','Georgia','Ghana','Greece','Greenland','Guatemala','Guinea','Guyana','Haiti','Honduras','Hungary','Iceland','India','Indonesia','Iran','Iraq','Ireland','Isle of Man','Israel','Italy','Ivory Coast','Jamaica','Jordan','Kazakstan','Kenya','Kuwait','Kyrgyzstan','Laos','Latvia','Lebanon','Lesotho','Liberia','Libya','Lithuania','Luxembourg','Macedonia','Madagascar','Malawi','Malaysia','Maldives','Mali','Malta','Mauritania','Mauritius','Mexico','Moldova','Monaco','Mongolia','Montenegro','Morocco','Mozambique','Myanmar(Burma)','Namibia','Nepal','Netherlands','New Zealand','Nicaragua','Niger','Nigeria','NorthKorea','Norway','Oman','Pakistan','Panama','Paraguay','Peru','Philippines','Portugal','PuertoRico','Qatar','Romania','Russia','Rwanda','SanMarino','SaudiArabia','Senegal','Serbia','SierraLeone','Slovakia','Slovenia','Somalia','SouthAfrica','Spain','SriLanka','Sudan','Suriname','Swaziland','Sweden','Switzerland','Syria','Tajikstan','Tanzania','Thailand','Togo','Tonga','TrinidadandTobago','Tunisia','Turkey','Turkmenistan','U.S.Virgin Islands','Uganda','Ukraine','Uruguay','Uzbekistan','Venezuela','Vietnam','Yemen','Zambia','Zimbabwe','Andorra','Reunion','Poland','Guam','Vatican','Liechtensteins','Curacao','Seychelles','Antarctica','Gibraltar','Cuba','Faroe Islands','Ahvenanmaa','Bermuda','Timor-Leste'];
+const specialRegex = [
+  /(\d\.)?\d+×/,
+  /IPLC|IEPL|Kern|Edge|Pro|Std|Exp|Biz|Fam|Game|Buy|Zx|LB|Game/,
+];
+const nameclear =
+  /(套餐|到期|有效|剩余|版本|已用|过期|失联|测试|官方|网址|备用|群|TEST|客服|网站|获取|订阅|流量|机场|下次|官址|联系|邮箱|工单|学术|USE|USED|TOTAL|EXPIRE|EMAIL)/i;
+// prettier-ignore
+const regexArray=[/ˣ²/, /ˣ³/, /ˣ⁴/, /ˣ⁵/, /ˣ⁶/, /ˣ⁷/, /ˣ⁸/, /ˣ⁹/, /ˣ¹⁰/, /ˣ²⁰/, /ˣ³⁰/, /ˣ⁴⁰/, /ˣ⁵⁰/, /IPLC/i, /IEPL/i, /核心/, /边缘/, /高级/, /标准/, /实验/, /商宽/, /家宽/, /游戏|game/i, /购物/, /专线/, /LB/, /cloudflare/i, /\budp\b/i, /\bgpt\b/i,/udpn\b/];
+// prettier-ignore
+const valueArray= [ "2×","3×","4×","5×","6×","7×","8×","9×","10×","20×","30×","40×","50×","IPLC","IEPL","Kern","Edge","Pro","Std","Exp","Biz","Fam","Game","Buy","Zx","LB","CF","UDP","GPT","UDPN"];
+const nameblnx = /(高倍|(?!1)2+(x|倍)|ˣ²|ˣ³|ˣ⁴|ˣ⁵|ˣ¹⁰)/i;
+const namenx = /(高倍|(?!1)(0\.|\d)+(x|倍)|ˣ²|ˣ³|ˣ⁴|ˣ⁵|ˣ¹⁰)/i;
+const keya =
+  /港|Hong|HK|新加坡|SG|Singapore|日本|Japan|JP|美国|United States|US|韩|土耳其|TR|Turkey|Korea|KR|🇸🇬|🇭🇰|🇯🇵|🇺🇸|🇰🇷|🇹🇷/i;
+const keyb =
+  /(((1|2|3|4)\d)|(香港|Hong|HK) 0[5-9]|((新加坡|SG|Singapore|日本|Japan|JP|美国|United States|US|韩|土耳其|TR|Turkey|Korea|KR) 0[3-9]))/i;
+const rurekey = {
+  GB: /UK/g,
+  "B-G-P": /BGP/g,
+  "Russia Moscow": /Moscow/g,
+  "Korea Chuncheon": /Chuncheon|Seoul/g,
+  "Hong Kong": /Hongkong|HONG KONG/gi,
+  "United Kingdom London": /London|Great Britain/g,
+  "Dubai United Arab Emirates": /United Arab Emirates/g,
+  "Taiwan TW 台湾 🇹🇼": /(台|Tai\s?wan|TW).*?🇨🇳|🇨🇳.*?(台|Tai\s?wan|TW)/g,
+  "United States": /USA|Los Angeles|San Jose|Silicon Valley|Michigan/g,
+  澳大利亚: /澳洲|墨尔本|悉尼|土澳|(深|沪|呼|京|广|杭)澳/g,
+  德国: /(深|沪|呼|京|广|杭)德(?!.*(I|线))|法兰克福|滬德/g,
+  香港: /(深|沪|呼|京|广|杭)港(?!.*(I|线))/g,
+  日本: /(深|沪|呼|京|广|杭|中|辽)日(?!.*(I|线))|东京|大坂/g,
+  新加坡: /狮城|(深|沪|呼|京|广|杭)新/g,
+  美国: /(深|沪|呼|京|广|杭)美|波特兰|芝加哥|哥伦布|纽约|硅谷|俄勒冈|西雅图|芝加哥/g,
+  波斯尼亚和黑塞哥维那: /波黑共和国/g,
+  印尼: /印度尼西亚|雅加达/g,
+  印度: /孟买/g,
+  阿联酋: /迪拜|阿拉伯联合酋长国/g,
+  孟加拉国: /孟加拉/g,
+  捷克: /捷克共和国/g,
+  台湾: /新台|新北|台(?!.*线)/g,
+  Taiwan: /Taipei/g,
+  韩国: /春川|韩|首尔/g,
+  Japan: /Tokyo|Osaka/g,
+  英国: /伦敦/g,
+  India: /Mumbai/g,
+  Germany: /Frankfurt/g,
+  Switzerland: /Zurich/g,
+  俄罗斯: /莫斯科/g,
+  土耳其: /伊斯坦布尔/g,
+  泰国: /泰國|曼谷/g,
+  法国: /巴黎/g,
+  G: /\d\s?GB/gi,
+  Esnc: /esnc/gi,
+};
 
-  // $options 为通过链接传入的参数
-  // 例如: { arg1: 'a', arg2: 'b' }
-  // 可这样传:
-  // 先这样处理 encodeURIComponent(JSON.stringify({ arg1: 'a', arg2: 'b' }))
-  // /api/file/foo?$options=%7B%22arg1%22%3A%22a%22%2C%22arg2%22%3A%22b%22%7D
-  // 或这样传:
-  // 先这样处理 encodeURIComponent('arg1=a&arg2=b')
-  // /api/file/foo?$options=arg1%3Da%26arg2%3Db
-
-  // 默认会带上 _req 字段, 结构为
-  // {
-  //     method,
-  //     url,
-  //     path,
-  //     query,
-  //     params,
-  //     headers,
-  //     body,
-  // }
-  // console.log($options)
-
-  // 若设置 $options._res.headers
-  // 则会在输出文件时设置响应头, 例如:
-
-  // $options._res = {
-  //   headers: {
-  //     'X-Custom': '1'
-  //   }
-  // }
-
-  // 若设置 $options._res.status
-  // 则会在输出文件时设置响应状态码, 例如:
-
-  // $options._res = {
-  //   status: 404
-  // }
-
-  // 一个示例: 请求来自分享且 ua 不符合时, 返回自定义状态码和响应内容
-
-  // const { headers, url, path } = $options._req || {}
-  // const ua = headers?.['user-agent'] || headers?.['User-Agent']
-
-  // if (/^\/share\//.test(url) && !/surge/i.test(ua)) {
-  //   $options._res = {
-  //     status: 418
-  //   }
-  //   $content = `I'm a teapot`
-  // }
-
-  // targetPlatform 为输出的目标平台
-
-  // lodash
-
-  // $substore 为 OpenAPI
-  // 参考 https://github.com/Peng-YM/QuanX/blob/master/Tools/OpenAPI/README.md
-
-  // scriptResourceCache 缓存
-  // 可参考 https://t.me/zhetengsha/1003
-  // const cache = scriptResourceCache
-  // 设置
-  // cache.set('a:1', 1)
-  // cache.set('a:2', 2)
-  // 获取
-  // cache.get('a:1')
-  // 支持第二个参数: 自定义过期时间
-  // 支持第三个参数: 是否删除过期项
-  // cache.get('a:2', 1000, true)
-
-  // 清理
-  // cache._cleanup()
-  // 支持第一个参数: 匹配前缀的项也一起删除
-  // 支持第二个参数: 自定义过期时间
-  // cache._cleanup('a:', 1000)
-
-  // 关于缓存时长
-
-  // 拉取 Sub-Store 订阅时, 会自动拉取远程订阅
-
-  // 远程订阅缓存是 1 小时, 缓存的唯一 key 为 url+ user agent. 可通过前端的刷新按钮刷新缓存. 或使用参数 noCache 来禁用缓存. 例: 内部配置订阅链接时使用 http://a.com#noCache, 外部使用 sub-store 链接时使用 https://sub.store/download/1?noCache=true
-
-  // 当使用相关脚本时, 若在对应的脚本中使用参数开启缓存, 可设置持久化缓存 sub-store-csr-expiration-time 的值来自定义默认缓存时长, 默认为 172800000 (48 * 3600 * 1000, 即 48 小时)
-
-  // 🎈Loon 可在插件中设置
-
-  // 其他平台同理, 持久化缓存数据在 JSON 里
-
-  // 当配合脚本使用时, 可以在脚本的前面添加一个脚本操作, 实现保留 1 小时的缓存. 这样比较灵活
-
-  // async function operator() {
-  //     scriptResourceCache._cleanup(undefined, 1 * 3600 * 1000);
-  // }
-
-  // ProxyUtils 为节点处理工具
-  // 可参考 https://t.me/zhetengsha/1066
-  // const ProxyUtils = {
-  //     parse, // 订阅解析
-  //     process, // 节点操作/文件操作
-  //     produce, // 输出订阅
-  //     getRandomPort, // 获取随机端口(参考 ports 端口跳跃的格式 443,8443,5000-6000)
-  //     ipAddress, // https://github.com/beaugunderson/ip-address
-  //     isIPv4,
-  //     isIPv6,
-  //     isIP,
-  //     yaml, // yaml 解析和生成
-  //     getFlag, // 获取 emoji 旗帜
-  //     removeFlag, // 移除 emoji 旗帜
-  //     getISO, // 获取 ISO 3166-1 alpha-2 代码
-  //     Gist, // Gist 类
-  //     download, // 内部的下载方法, 见 backend/src/utils/download.js
-  //     downloadFile, // 下载二进制文件, 见 backend/src/utils/download.js
-  //     MMDB, // Node.js 环境 可用于模拟 Surge/Loon 的 $utils.ipasn, $utils.ipaso, $utils.geoip. 具体见 https://t.me/zhetengsha/1269
-  //     isValidUUID, // 辅助判断是否为有效的 UUID
-  //     Buffer, // https://github.com/feross/buffer
-  //     Base64, // https://github.com/dankogai/js-base64
-  //     JSON5, // https://github.com/json5/json5
-  // }
-  //  为兼容 https://github.com/xishang0128/sparkle 的 JavaScript 覆写, 也可以直接使用 `b64d`(Base64 解码), `b64e`(Base64 编码), `Buffer`, `yaml`(简单兼容了下 `yaml.parse` 和 `yaml.stringify`)
-
-  // 如果只是为了快速修改或者筛选 可以参考 脚本操作支持节点快捷脚本 https://t.me/zhetengsha/970 和 脚本筛选支持节点快捷脚本 https://t.me/zhetengsha/1009
-  // ⚠️ 注意: 函数式(即本文件这样的 function operator() {}) 和快捷操作(下面使用 $server) 只能二选一
-  // 示例: 给节点名添加前缀
-  // $server.name = `[${ProxyUtils.getISO($server.name)}] ${$server.name}`
-  // 示例: 给节点名添加旗帜
-  // $server.name = `[${ProxyUtils.getFlag($server.name).replace(/🇹🇼/g, '🇼🇸')}] ${ProxyUtils.removeFlag($server.name)}`
-
-  // 示例: 从 sni 文件中读取内容并进行节点操作
-  // const sni = await produceArtifact({
-  //     type: 'file',
-  //     name: 'sni' // 文件名
-  // });
-  // $server.sni = sni
-
-  // 示例: 从 config 文件中读取配置项并进行节点操作
-  // config 的本地内容为
-  // {
-  //   "reuse": false
-  // }
-  // 脚本操作为
-  // const config = (ProxyUtils.JSON5 || JSON).parse(await produceArtifact({
-  //     type: 'file',
-  //     name: 'config' // 文件名
-  // }))
-  // $server.reuse = config.reuse
-
-  // 1. Surge 输出 WireGuard 完整配置
-
-  // let proxies = await produceArtifact({
-  //   type: 'subscription',
-  //   name: 'sub',
-  //   platform: 'Surge',
-  //   produceOpts: {
-  //     'include-unsupported-proxy': true,
-  //   }
-  // })
-  // $content = proxies
-
-  // 2. sing-box
-
-  // 但是一般不需要这样用, 可参考
-  // 1. https://t.me/zhetengsha/1111
-  // 2. https://t.me/zhetengsha/1070
-  // 3. https://t.me/zhetengsha/1241
-
-  // let singboxProxies = await produceArtifact({
-  //     type: 'subscription', // type: 'subscription' 或 'collection'
-  //     name: 'sub', // subscription name
-  //     platform: 'sing-box', // target platform
-  //     produceType: 'internal' // 'internal' produces an Array, otherwise produces a String( JSON.parse('JSON String') )
-  // })
-
-  // // JSON
-  // $content = JSON.stringify({}, null, 2)
-
-  // 3. clash.meta
-
-  // 但是一般不需要这样用, 可参考
-  // 1. https://t.me/zhetengsha/1111
-  // 2. https://t.me/zhetengsha/1070
-  // 3. https://t.me/zhetengsha/1234
-
-  // let clashMetaProxies = await produceArtifact({
-  //     type: 'subscription',
-  //     name: 'sub',
-  //     platform: 'ClashMeta',
-  //     produceType: 'internal' // 'internal' produces an Array, otherwise produces a String( ProxyUtils.yaml.safeLoad('YAML String').proxies )
-  // })
-
-  // 4. 一个比较折腾的方案: 在脚本操作中, 把内容同步到另一个 gist
-  // 见 https://t.me/zhetengsha/1428
-  //
-  // const content = ProxyUtils.produce([...proxies], platform)
-
-  // // YAML
-  // ProxyUtils.yaml.load('YAML String')
-  // ProxyUtils.yaml.safeLoad('YAML String')
-  // $content = ProxyUtils.yaml.safeDump({})
-  // $content = ProxyUtils.yaml.dump({})
-
-  // 一个往文件里插入本地节点的例子:
-  // const yaml = ProxyUtils.yaml.safeLoad($content ?? $files[0])
-  // let clashMetaProxies = await produceArtifact({
-  //     type: 'collection',
-  //     name: '机场',
-  //     platform: 'ClashMeta',
-  //     produceType: 'internal'
-  // })
-  // yaml.proxies.unshift(...clashMetaProxies)
-  // $content = ProxyUtils.yaml.dump(yaml)
-
-  // { $content, $files, $options } will be passed to the next operator
-  // $content is the final content of the file
-
-  // flowUtils 为机场订阅流量信息处理工具
-  // 可参考:
-  // 1. https://t.me/zhetengsha/948
-
-  // context 为传入的上下文
-  // 其中 source 为 订阅和组合订阅的数据, 有三种情况, 按需判断 (若只需要取订阅/组合订阅名称 直接用 `_subName` `_subDisplayName` `_collectionName` `_collectionDisplayName` 即可)
-
-  // 若存在 `source._collection` 且 `source._collection.subscriptions` 中的 key 在 `source` 上也存在, 说明输出结果为组合订阅, 但是脚本设置在单条订阅上
-
-  // 若存在 `source._collection` 但 `source._collection.subscriptions` 中的 key 在 `source` 上不存在, 说明输出结果为组合订阅, 脚本设置在组合订阅上
-
-  // 若不存在 `source._collection`, 说明输出结果为单条订阅, 脚本设置在此单条订阅上
-
-  // 这个历史遗留原因, 是有点复杂. 提供一个例子, 用来取当前脚本所在的组合订阅或单条订阅名称
-
-  // let name = ''
-  // for (const [key, value] of Object.entries(context.source)) {
-  //   if (!key.startsWith('_')) {
-  //     name = value.displayName || value.name
-  //     break
-  //   }
-  // }
-  // if (!name) {
-  //   const collection = context.source._collection
-  //   name = collection.displayName || collection.name
-  // }
-
-  // 1. 输出单条订阅 sub-1 时, 该单条订阅中的脚本上下文为:
-  // {
-  //   "source": {
-  //     "sub-1": {
-  //       "name": "sub-1",
-  //       "displayName": "",
-  //       "mergeSources": "",
-  //       "ignoreFailedRemoteSub": true,
-  //       "process": [],
-  //       "icon": "",
-  //       "source": "local",
-  //       "url": "",
-  //       "content": "",
-  //       "ua": "",
-  //       "display-name": "",
-  //       "useCacheForFailedRemoteSub": false
-  //     }
-  //   },
-  //   "backend": "Node",
-  //   "version": "2.14.198"
-  // }
-  // 2. 输出组合订阅 collection-1 时, 该组合订阅中的脚本上下文为:
-  // {
-  //   "source": {
-  //     "_collection": {
-  //       "name": "collection-1",
-  //       "displayName": "",
-  //       "mergeSources": "",
-  //       "ignoreFailedRemoteSub": false,
-  //       "icon": "",
-  //       "process": [],
-  //       "subscriptions": [
-  //         "sub-1"
-  //       ],
-  //       "display-name": ""
-  //     }
-  //   },
-  //   "backend": "Node",
-  //   "version": "2.14.198"
-  // }
-  // 3. 输出组合订阅 collection-1 时, 该组合订阅中的单条订阅 sub-1 中的某个脚本上下文为:
-  // {
-  //   "source": {
-  //     "sub-1": {
-  //       "name": "sub-1",
-  //       "displayName": "",
-  //       "mergeSources": "",
-  //       "ignoreFailedRemoteSub": true,
-  //       "icon": "",
-  //       "process": [],
-  //       "source": "local",
-  //       "url": "",
-  //       "content": "",
-  //       "ua": "",
-  //       "display-name": "",
-  //       "useCacheForFailedRemoteSub": false
-  //     },
-  //     "_collection": {
-  //       "name": "collection-1",
-  //       "displayName": "",
-  //       "mergeSources": "",
-  //       "ignoreFailedRemoteSub": false,
-  //       "icon": "",
-  //       "process": [],
-  //       "subscriptions": [
-  //         "sub-1"
-  //       ],
-  //       "display-name": ""
-  //     }
-  //   },
-  //   "backend": "Node",
-  //   "version": "2.14.198"
-  // }
-
-  // 参数说明
-  // 可参考 https://github.com/sub-store-org/Sub-Store/wiki/%E9%93%BE%E6%8E%A5%E5%8F%82%E6%95%B0%E8%AF%B4%E6%98%8E
-
-  console.log(JSON.stringify(context, null, 2));
-
-  return proxies;
+let GetK = false, AMK = []
+function ObjKA(i) {
+  GetK = true
+  AMK = Object.entries(i)
 }
+
+function operator(pro) {
+  const Allmap = {};
+  const outList = getList(outputName);
+  let inputList,
+    retainKey = "";
+  if (inname !== "") {
+    inputList = [getList(inname)];
+  } else {
+    inputList = [ZH, FG, QC, EN];
+  }
+
+  inputList.forEach((arr) => {
+    arr.forEach((value, valueIndex) => {
+      Allmap[value] = outList[valueIndex];
+    });
+  });
+
+  if (clear || nx || blnx || key) {
+    pro = pro.filter((res) => {
+      const resname = res.name;
+      const shouldKeep =
+        !(clear && nameclear.test(resname)) &&
+        !(nx && namenx.test(resname)) &&
+        !(blnx && !nameblnx.test(resname)) &&
+        !(key && !(keya.test(resname) && /2|4|6|7/i.test(resname)));
+      return shouldKeep;
+    });
+  }
+
+  const BLKEYS = BLKEY ? BLKEY.split("+") : "";
+
+  pro.forEach((e) => {
+    let bktf = false, ens = e.name
+    // 预处理 防止预判或遗漏
+    Object.keys(rurekey).forEach((ikey) => {
+      if (rurekey[ikey].test(e.name)) {
+        e.name = e.name.replace(rurekey[ikey], ikey);
+      if (BLKEY) {
+        bktf = true
+        let BLKEY_REPLACE = "",
+        re = false;
+      BLKEYS.forEach((i) => {
+        if (i.includes(">") && ens.includes(i.split(">")[0])) {
+          if (rurekey[ikey].test(i.split(">")[0])) {
+              e.name += " " + i.split(">")[0]
+            }
+          if (i.split(">")[1]) {
+            BLKEY_REPLACE = i.split(">")[1];
+            re = true;
+          }
+        } else {
+          if (ens.includes(i)) {
+             e.name += " " + i
+            }
+        }
+        retainKey = re
+        ? BLKEY_REPLACE
+        : BLKEYS.filter((items) => e.name.includes(items));
+      });}
+      }
+    });
+    if (blockquic == "on") {
+      e["block-quic"] = "on";
+    } else if (blockquic == "off") {
+      e["block-quic"] = "off";
+    } else {
+      delete e["block-quic"];
+    }
+
+    // 自定义
+    if (!bktf && BLKEY) {
+      let BLKEY_REPLACE = "",
+        re = false;
+      BLKEYS.forEach((i) => {
+        if (i.includes(">") && e.name.includes(i.split(">")[0])) {
+          if (i.split(">")[1]) {
+            BLKEY_REPLACE = i.split(">")[1];
+            re = true;
+          }
+        }
+      });
+      retainKey = re
+        ? BLKEY_REPLACE
+        : BLKEYS.filter((items) => e.name.includes(items));
+    }
+
+    let ikey = "",
+      ikeys = "";
+    // 保留固定格式 倍率
+    if (blgd) {
+      regexArray.forEach((regex, index) => {
+        if (regex.test(e.name)) {
+          ikeys = valueArray[index];
+        }
+      });
+    }
+
+    // 正则 匹配倍率
+    if (bl) {
+      const match = e.name.match(
+        /((倍率|X|x|×)\D?((\d{1,3}\.)?\d+)\D?)|((\d{1,3}\.)?\d+)(倍|X|x|×)/
+      );
+      if (match) {
+        const rev = match[0].match(/(\d[\d.]*)/)[0];
+        if (rev !== "1") {
+          const newValue = rev + "×";
+          ikey = newValue;
+        }
+      }
+    }
+
+    !GetK && ObjKA(Allmap)
+    // 匹配 Allkey 地区
+    const findKey = AMK.find(([key]) =>
+      e.name.includes(key)
+    )
+    
+    let firstName = "",
+      nNames = "";
+
+    if (nf) {
+      firstName = FNAME;
+    } else {
+      nNames = FNAME;
+    }
+    if (findKey?.[1]) {
+      const findKeyValue = findKey[1];
+      let keyover = [],
+        usflag = "";
+      if (addflag) {
+        const index = outList.indexOf(findKeyValue);
+        if (index !== -1) {
+          usflag = FG[index];
+          usflag = usflag === "🇹🇼" ? "🇨🇳" : usflag;
+        }
+      }
+      keyover = keyover
+        .concat(firstName, usflag, nNames, findKeyValue, retainKey, ikey, ikeys)
+        .filter((k) => k !== "");
+      e.name = keyover.join(FGF);
+    } else {
+      if (nm) {
+        e.name = FNAME + FGF + e.name;
+      } else {
+        e.name = null;
+      }
+    }
+  });
+  pro = pro.filter((e) => e.name !== null);
+  jxh(pro);
+  numone && oneP(pro);
+  blpx && (pro = fampx(pro));
+  key && (pro = pro.filter((e) => !keyb.test(e.name)));
+  return pro;
+}
+
+// prettier-ignore
+function getList(arg) { switch (arg) { case 'us': return EN; case 'gq': return FG; case 'quan': return QC; default: return ZH; }}
+// prettier-ignore
+function jxh(e) { const n = e.reduce((e, n) => { const t = e.find((e) => e.name === n.name); if (t) { t.count++; t.items.push({ ...n, name: `${n.name}${XHFGF}${t.count.toString().padStart(2, "0")}`, }); } else { e.push({ name: n.name, count: 1, items: [{ ...n, name: `${n.name}${XHFGF}01` }], }); } return e; }, []);const t=(typeof Array.prototype.flatMap==='function'?n.flatMap((e) => e.items):n.reduce((acc, e) => acc.concat(e.items),[])); e.splice(0, e.length, ...t); return e;}
+// prettier-ignore
+function oneP(e) { const t = e.reduce((e, t) => { const n = t.name.replace(/[^A-Za-z0-9\u00C0-\u017F\u4E00-\u9FFF]+\d+$/, ""); if (!e[n]) { e[n] = []; } e[n].push(t); return e; }, {}); for (const e in t) { if (t[e].length === 1 && t[e][0].name.endsWith("01")) {/* const n = t[e][0]; n.name = e;*/ t[e][0].name= t[e][0].name.replace(/[^.]01/, "") } } return e; }
+// prettier-ignore
+function fampx(pro) { const wis = []; const wnout = []; for (const proxy of pro) { const fan = specialRegex.some((regex) => regex.test(proxy.name)); if (fan) { wis.push(proxy); } else { wnout.push(proxy); } } const sps = wis.map((proxy) => specialRegex.findIndex((regex) => regex.test(proxy.name)) ); wis.sort( (a, b) => sps[wis.indexOf(a)] - sps[wis.indexOf(b)] || a.name.localeCompare(b.name) ); wnout.sort((a, b) => pro.indexOf(a) - pro.indexOf(b)); return wnout.concat(wis);}
